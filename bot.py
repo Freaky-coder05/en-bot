@@ -178,7 +178,7 @@ async def quality_encode(bot, query, c_thumb):
             "1080p": {"w": 1920, "h": 1080, "cq": 24, "abr": "192k"},
         }
 
-        EQ = "eq=contrast=1.10:saturation=1.20:gamma=0.95:brightness=-0.01"
+        EQ = "eq=contrast=1.00:saturation=0.70:gamma=0.95:brightness=-0.01"
 
         for res, cfg in RESOLUTIONS.items():
             w, h, cq, abr = cfg["w"], cfg["h"], cfg["cq"], cfg["abr"]
