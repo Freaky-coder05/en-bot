@@ -51,7 +51,6 @@ async def _find_eng_sub_index(file_path):
     stdout, _ = await process.communicate()
     output = stdout.decode().strip().split('\n')
     
-    # Defaults to the first subtitle track if specific 'eng' isn't found
     first_sub_idx = None
     for line in output:
         if not line: continue
@@ -100,7 +99,6 @@ async def pyrogram_progress(current, total, msg, action, start_time, last_update
 # ─── MAIN HANDLER ───────────────────────────────────────────────────────
 @app.on_message(filters.video | filters.document)
 async def handle_incoming_media(client, message):
-    # Route incoming videos to the encoder function
     await quality_encode(client, message, c_thumb=None)
 
 async def quality_encode(bot, query, c_thumb):
@@ -115,7 +113,6 @@ async def quality_encode(bot, query, c_thumb):
     if os.path.isdir(f"ffmpeg/{UID}") and os.path.isdir(f"encode/{UID}"):
         return await ms.edit("**⚠️ Yᴏᴜ ᴄᴀɴ ᴄᴏᴍᴘʀᴇss ᴏɴʟʏ ᴏɴᴇ ғɪʟᴇ ᴀᴛ ᴀ ᴛɪᴍᴇ**")
 
-    thumb_path = None
     Download_DIR = f"ffmpeg/{UID}"
     Output_DIR   = f"encode/{UID}"
     status_ms = None
@@ -158,7 +155,7 @@ async def quality_encode(bot, query, c_thumb):
         if eng_idx is not None:
             await status_ms.edit(f"✅ **Subtitle found (stream #{eng_idx}). Extracting…**")
             ep = await asyncio.create_subprocess_shell(
-                f'ffmpeg -i "{File_Path}" -map 0:{eng_idx} -c:s srt "{sub_raw}" -y',
+                f'ffmpeg -i "{File_Path}" -map 0:{eng_idx} -c:s copy "{sub_raw}" -y',
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
             await ep.communicate()
@@ -172,22 +169,29 @@ async def quality_encode(bot, query, c_thumb):
         original_bytes = os.path.getsize(File_Path)
         original_mb    = original_bytes / (1024 * 1024)
 
+        # High-Quality Quality Targets for Anime (Lower CQ = Sharper/Better)
         RESOLUTIONS = {
-            "480p":  {"w": 854,  "h": 480,  "cq": 28, "abr": "96k"},
-            "720p":  {"w": 1280, "h": 720,  "cq": 26, "abr": "128k"},
-            "1080p": {"w": 1920, "h": 1080, "cq": 24, "abr": "192k"},
+            "480p":  {"w": 854,  "h": 480,  "cq": 24, "abr": "96k"},
+            "720p":  {"w": 1280, "h": 720,  "cq": 22, "abr": "128k"},
+            "1080p": {"w": 1920, "h": 1080, "cq": 20, "abr": "192k"},
         }
 
-        EQ = "eq=contrast=1.00:saturation=0.70:gamma=0.95:brightness=-0.01"
+        # Optimized HDR Color Polish Filter Matrix + Sharpener for Crisp Anime Outlines
+        # 1. scale: Smooth downscaling to target dimensions
+        # 2. unsharp: Crisp fine outlines (prevents blur without noise)
+        # 3. eq: Gamma, contrast & saturation boost for high dynamic range look
+        # 4. colorbalance: Midtone color warmth adjustment
+        SHARPEN_FILTER = "unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=0.8:chroma_msize_x=5:chroma_msize_y=5:chroma_amount=0.0"
+        COLOR_FILTER   = "eq=contrast=1.08:saturation=1.20:gamma=1.02:brightness=-0.01,colorbalance=rm=0.02:gm=0.01:bm=0.03"
 
         for res, cfg in RESOLUTIONS.items():
             w, h, cq, abr = cfg["w"], cfg["h"], cfg["cq"], cfg["abr"]
-            vf = f"scale={w}:{h},{EQ}"
+            vf = f"scale={w}:{h}:flags=lanczos,{SHARPEN_FILTER},{COLOR_FILTER}"
             full_title = f"{BASE_TITLE} {res} Tamil {CHANNEL_TAG}"
             out_filename = f"{full_title}.mkv"
             Output_Path = f"{Output_DIR}/{out_filename}"
 
-            await status_ms.edit(f"🎬 **Starting {res} encode…**")
+            await status_ms.edit(f"🎬 **Starting {res} Ultra HDR encode…**")
 
             meta = (
                 f'-metadata title="{full_title}" '
@@ -204,11 +208,12 @@ async def quality_encode(bot, query, c_thumb):
                 map_flags = "-map 0:v:0 -map 0:a"
                 sub_codec = ""
 
-            # T4 GPU HEVC Encoding Command
+            # T4 GPU HEVC 10-bit High-Fidelity Anime Engine Command
             cmd = (
                 f'ffmpeg {inputs} {map_flags} '
-                f'-c:v hevc_nvenc -preset p6 -tune hq -rc vbr -cq {cq} '
-                f'-spatial_aq 1 -temporal_aq 1 -pix_fmt yuv420p '
+                f'-c:v hevc_nvenc -preset p7 -tune hq -rc vbr -multipass fullres -cq {cq} '
+                f'-spatial_aq 1 -temporal_aq 1 -aq-strength 8 -pix_fmt yuv420p10le '
+                f'-color_primaries bt709 -color_trc bt709 -colorspace bt709 '
                 f'-vf "{vf}" '
                 f'-c:a aac -b:a {abr} -ac 2 '
                 f'{sub_codec} {meta} '
@@ -246,11 +251,11 @@ async def quality_encode(bot, query, c_thumb):
                     if time() - last_upd > 5:
                         bar = "▓" * floor(percentage / 5) + "░" * (20 - floor(percentage / 5))
                         await status_ms.edit(
-                            f"🎥 **Encoding [{res}]**\n\n"
+                            f"🎥 **Encoding [{res}] HDR Visual Quality**\n\n"
                             f"`[{bar}]` **{percentage:.1f}%**\n\n"
                             f"⏱ **Elapsed** : {time() - enc_start:.0f} s\n"
                             f"📦 **Current** : {cur_mb:.1f} MB\n"
-                            f"⚙️ **Codec** : hevc_nvenc (T4 GPU)"
+                            f"⚙️ **Codec** : HEVC 10-bit NVENC (T4 GPU)"
                         )
                         last_upd = time()
                 except (ValueError, ZeroDivisionError):
@@ -275,7 +280,7 @@ async def quality_encode(bot, query, c_thumb):
                 document=Output_Path,
                 caption=(
                     f"🎥 **{full_title}**\n\n"
-                    f"🎞 **Codec** : H.265 (HEVC NVENC)\n"
+                    f"🎞 **Codec** : H.265 10-Bit (Ultra HDR Quality)\n"
                     f"📁 **Original** : {original_mb:.1f} MB\n"
                     f"📦 **Encoded** : {final_mb:.1f} MB\n"
                     f"📉 **Reduction** : {reduction:.1f}%\n"
